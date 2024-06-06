@@ -1,0 +1,46 @@
+pipeline {
+    agent any
+
+    environment {
+        APP_ENV = '{{env}}'
+        RELEASE_NAME = '{{name}}'
+        NAMESPACE = '{{namespace}}'
+        ECR_REPOSITORY = '{{repo}}' // Replace with your ECR repository name
+        EKS_CLUSTER_NAME = '{{cluster}}'
+        ECR_HOST = '{{cluster}}'
+        IMAGE = "${ECR_HOST}/${ECR_REPOSITORY}"
+        TAG = "${APP_ENV}-${currentBuild.number}"
+    }
+
+    stages {
+        stage('Build Application') {
+            steps {
+                script {
+                    sh "docker build . -t ${IMAGE}:${TAG} --platform=linux/amd64"
+                }
+            }
+        }
+
+        stage('Build & Push to ECR') {
+            steps {
+                // Log in to ECR
+                script {
+                    sh "aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin ${ECR_HOST}"
+                }
+                // Push the Docker image to ECR
+                script {
+                    sh "docker push ${IMAGE}:${TAG}"
+                }
+            }
+        }
+
+        stage('Deploy to EKS') {
+            steps {
+                // Configure kubectl
+                script {
+                    sh "helm upgrade ${RELEASE_NAME}  -n ${NAMESPACE} --set image.repository=${IMAGE} --set image.tag=${TAG} deployment --kube-context=${EKS_CLUSTER_NAME} --wait"
+                }
+            }
+        }
+    }
+}
